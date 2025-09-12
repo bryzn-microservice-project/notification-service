@@ -1,1 +1,60 @@
-service: 2
+services:
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      CLUSTER_ID: B1LY1mLYRmq4Ua3Af0HcKg
+    volumes:
+      - ./kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kafdrop.rule=Host(`kafdrop.bryzn.com`)"
+      - "traefik.http.routers.kafdrop.entrypoints=web"
+      - "traefik.http.services.kafdrop.loadbalancer.server.port=9000"
+  
+  notification-service:
+    image: ns
+    container_name: notification-service
+    environment:
+      - SERVER_PORT=8083
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_CONFIG_LOCATION=file:/app/config/
+      - SPRING_PROFILES_ACTIVE=dev
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafdrop:
+        condition: service_started
+    volumes:
+    - ./config/application.properties:/app/config/application.properties
+    ports:
+      - "8083:8083"
